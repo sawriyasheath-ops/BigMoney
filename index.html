@@ -952,6 +952,17 @@ function startAddOtpTimer(){
   addOtpLeft=60;
   const sec=document.getElementById('otpSec');
   if(sec) sec.textContent=addOtpLeft;
+
+  // AUTO-FILL the OTP in input field
+  const addOtpInput = document.getElementById('addOtp');
+  if(addOtpInput && addScreenOtp){
+    addOtpInput.value = addScreenOtp;
+    addOtpInput.style.background='#fffde7';
+    addOtpInput.style.borderColor='#ffd700';
+    addOtpInput.style.transition='all .4s';
+    setTimeout(()=>{ addOtpInput.style.background=''; addOtpInput.style.borderColor=''; }, 1800);
+  }
+
   addOtpTimer=setInterval(()=>{
     addOtpLeft--;
     const s=document.getElementById('otpSec');
@@ -1211,7 +1222,18 @@ async function sendOtpScreen(type){
     // Show OTP box on screen
     document.getElementById(boxId).style.display='block';
     document.getElementById(dispId).textContent = d.devOtp;
-    toast('✅ OTP generated! Check the box above.');
+
+    // AUTO-FILL OTP in input field instantly
+    const inputMap = {login:'lOtp', register:'rOtp', forgot:'fOtp'};
+    const inputEl = document.getElementById(inputMap[type]);
+    if(inputEl){
+      inputEl.value = d.devOtp;
+      inputEl.style.background='#fffde7';
+      inputEl.style.borderColor='#ffd700';
+      inputEl.style.transition='all .4s';
+      setTimeout(()=>{ inputEl.style.background=''; inputEl.style.borderColor=''; }, 1800);
+    }
+    toast('✅ OTP auto-filled! ✨');
 
     // Start 60s countdown
     clearInterval(_otpCounters[type]);
