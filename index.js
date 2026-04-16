@@ -15,26 +15,46 @@ app.use(express.json());
 app.use(cors());
 app.use(express.static(path.join(__dirname)));
 
-// ===================== MONGODB =====================
-const mongoOpts = {
-  serverSelectionTimeoutMS: 10000,
-  socketTimeoutMS: 45000,
-  maxPoolSize: 10,
-  retryWrites: true,
-};
-mongoose.connect(process.env.MONGODB_URI, mongoOpts)
-  .then(() => console.log('✅ MongoDB Connected'))
-  .catch(err => console.error('❌ MongoDB Error:', err));
+// ===================== MONGODB — Vercel Optimized =====================
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://ops11ajay_db_user:dnxj6DYgAlbfi4MC@cluster0.mro3mpl.mongodb.net/?appName=Cluster0';
+const JWT_SECRET = process.env.JWT_SECRET || 'imoney_jwt_secret_2024_xK9#mP';
 
-// Auto-reconnect on disconnect
-mongoose.connection.on('disconnected', () => {
-  console.log('⚠️ MongoDB disconnected — reconnecting...');
-  setTimeout(() => mongoose.connect(process.env.MONGODB_URI, mongoOpts).catch(()=>{}), 3000);
+let isMongoConnected = false;
+
+async function connectDB() {
+  if (isMongoConnected && mongoose.connection.readyState === 1) return;
+  try {
+    await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 30000,
+      maxPoolSize: 5,
+      retryWrites: true,
+    });
+    isMongoConnected = true;
+    console.log('✅ MongoDB Connected');
+  } catch(err) {
+    isMongoConnected = false;
+    console.error('❌ MongoDB Error:', err.message);
+    throw err;
+  }
+}
+
+// Connect on startup
+connectDB().catch(()=>{});
+
+// Middleware: ensure DB connected before every request
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch(e) {
+    res.status(503).json({ success: false, message: 'Database unavailable. Try again in a moment.' });
+  }
 });
 
 // ===================== GMAIL OTP =====================
-const GMAIL_USER = 'alvone18298@gmail.com';
-const GMAIL_PASS = process.env.GMAIL_PASS || 'zhzpginyyzscsqzo';
+const GMAIL_USER = 'orvion18298@gmail.com';
+const GMAIL_PASS = process.env.GMAIL_PASS || 'sqqbodiwrbtsbbrw';
 
 const mailer = nodemailer.createTransport({
   service: 'gmail',
@@ -53,7 +73,7 @@ mailer.verify((err, success) => {
 async function sendAdminEmail(subject, htmlBody) {
   try {
     const info = await mailer.sendMail({
-      from: `"BIG MONEY 💰" <${GMAIL_USER}>`,
+      from: `"iMoney 💰" <${GMAIL_USER}>`,
       to: GMAIL_USER,
       subject,
       html: htmlBody
@@ -67,19 +87,19 @@ async function sendAdminEmail(subject, htmlBody) {
 async function sendOTPEmail(toEmail, otp) {
   try {
     await mailer.sendMail({
-      from: '"BIG MONEY 💰" <alvone18298@gmail.com>',
+      from: '"iMoney 💰" <alvone18298@gmail.com>',
       to: toEmail,
-      subject: `Your BIG MONEY OTP: ${otp}`,
+      subject: `Your iMoney OTP: ${otp}`,
       html: `
       <div style="font-family:Arial,sans-serif;max-width:420px;margin:0 auto;background:#f0f2f8;padding:30px;border-radius:16px">
-        <h2 style="color:#1a1aff;text-align:center;margin-bottom:4px">BIG <span style="color:#ffd700">MONEY</span></h2>
+        <h2 style="color:#7c3aed;text-align:center;margin-bottom:4px">i<span style="color:#7c3aed">Money</span></h2>
         <p style="text-align:center;color:#888;font-size:13px;margin-bottom:24px">💰 INVEST • EARN • GROW</p>
         <div style="background:#fff;border-radius:12px;padding:20px;text-align:center;margin-bottom:16px">
           <p style="color:#555;margin-bottom:12px;font-size:15px">Your One-Time Password is:</p>
-          <div style="background:#1a1aff;color:#fff;font-size:38px;font-weight:bold;padding:18px 10px;border-radius:12px;letter-spacing:10px">${otp}</div>
+          <div style="background:#7c3aed;color:#fff;font-size:38px;font-weight:bold;padding:18px 10px;border-radius:12px;letter-spacing:10px">${otp}</div>
           <p style="color:#999;font-size:12px;margin-top:12px">⏰ Expires in 5 minutes</p>
         </div>
-        <p style="color:#aaa;font-size:11px;text-align:center">Do not share this OTP with anyone. BIG MONEY will never ask for your OTP.</p>
+        <p style="color:#aaa;font-size:11px;text-align:center">Do not share this OTP with anyone. iMoney will never ask for your OTP.</p>
       </div>`
     });
     return { success: true };
@@ -99,12 +119,7 @@ const auth = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ success: false, error: 'No token' });
   try {
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      console.error('JWT_SECRET missing from env!');
-      return res.status(500).json({ success: false, error: 'Server config error' });
-    }
-    const decoded = jwt.verify(token, secret);
+    const decoded = jwt.verify(token, JWT_SECRET);
     const user = await User.findById(decoded.id).lean();
     if (!user) return res.status(401).json({ success: false, error: 'User not found' });
     req.user = user;
@@ -187,7 +202,7 @@ app.post('/api/register', async (req, res) => {
     const user = await User.create({ phone, email: email || '', password: hashed, uid, refCode: uid, refBy });
     await OTP.deleteMany({ identifier });
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ success: true, token, user: { phone: user.phone, uid: user.uid, balance: 0, earnings: 0, refCode: uid, totalDeposit: 0, withdrawEligible: false, refFriendsDeposited: 0 } });
   } catch (e) {
     console.error('Register error:', e);
@@ -213,7 +228,7 @@ app.post('/api/login', async (req, res) => {
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) return res.json({ success: false, message: 'Wrong password' });
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '30d' });
     res.json({
       success: true, token,
       user: { phone: user.phone, uid: user.uid, balance: user.balance, earnings: user.earnings, refCode: user.refCode, totalDeposit: user.totalDeposit, withdrawEligible: user.withdrawEligible, refFriendsDeposited: user.refFriendsDeposited || 0 }
@@ -221,6 +236,35 @@ app.post('/api/login', async (req, res) => {
   } catch (e) {
     console.error('Login error:', e);
     res.json({ success: false, message: 'Login failed. Try again.' });
+  }
+});
+
+// ===================== RESET PASSWORD =====================
+app.post('/api/reset-password', async (req, res) => {
+  try {
+    const { phone, otp, newPassword } = req.body;
+    if (!phone || !otp || !newPassword) return res.json({ success: false, message: 'Phone, OTP and new password required' });
+    if (newPassword.length < 6) return res.json({ success: false, message: 'Password must be at least 6 characters' });
+
+    // OTP verify karo
+    const identifier = phone.trim();
+    const otpDoc = await OTP.findOne({ identifier, otp: otp.toString() });
+    if (!otpDoc) return res.json({ success: false, message: 'Invalid or expired OTP. Click Get OTP again.' });
+
+    // User dhundo
+    const user = await User.findOne({ phone: phone.trim() });
+    if (!user) return res.json({ success: false, message: 'No account found with this phone number.' });
+
+    // Password update karo
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await User.findByIdAndUpdate(user._id, { password: hashed });
+    await OTP.deleteMany({ identifier });
+
+    console.log('✅ Password reset for:', phone);
+    res.json({ success: true, message: 'Password reset successfully!' });
+  } catch (e) {
+    console.error('Reset password error:', e.message);
+    res.json({ success: false, message: 'Reset failed. Try again.' });
   }
 });
 
@@ -267,19 +311,19 @@ app.post('/api/deposit/request', auth, async (req, res) => {
 
     // ✅ STEP 3: Email + Telegram BACKGROUND mein bhejen — parallel, response ke BAAD
     // Agar email ya telegram fail bhi ho, deposit save ho chuka hai
-    const confirmUrl = `${process.env.APP_URL || 'https://big-money-ten.vercel.app'}/api/admin/confirm-deposit?id=${dep._id}&key=${process.env.ADMIN_SECRET || 'bm_admin_2024'}`;
-    const rejectUrl  = `${process.env.APP_URL || 'https://big-money-ten.vercel.app'}/api/admin/reject-deposit?id=${dep._id}&key=${process.env.ADMIN_SECRET || 'bm_admin_2024'}`;
+    const confirmUrl = `${process.env.APP_URL || 'https://i-money-ten.vercel.app'}/api/admin/confirm-deposit?id=${dep._id}&key=${process.env.ADMIN_SECRET || 'im_admin_2024'}`;
+    const rejectUrl  = `${process.env.APP_URL || 'https://i-money-ten.vercel.app'}/api/admin/reject-deposit?id=${dep._id}&key=${process.env.ADMIN_SECRET || 'im_admin_2024'}`;
 
     const emailHtml = `<div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;background:#f4f6ff;padding:28px;border-radius:14px">
-        <h2 style="color:#1a1aff;margin-bottom:4px">BIG <span style="color:#ffd700">MONEY</span></h2>
+        <h2 style="color:#7c3aed;margin-bottom:4px">i<span style="color:#7c3aed">Money</span></h2>
         <p style="color:#888;font-size:13px;margin-bottom:20px">New Deposit Request — Action Required</p>
         <div style="background:#fff;border-radius:12px;padding:20px;margin-bottom:16px">
           <table style="width:100%;border-collapse:collapse;font-size:14px">
             <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">🆔 User ID</td><td style="padding:9px 0;font-weight:700;border-bottom:1px solid #f0f0f0">${req.user.uid}</td></tr>
             <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">📱 Phone</td><td style="padding:9px 0;font-weight:700;border-bottom:1px solid #f0f0f0">${req.user.phone}</td></tr>
-            <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">💰 Amount</td><td style="padding:9px 0;font-weight:800;font-size:18px;color:#1a1aff;border-bottom:1px solid #f0f0f0">₹${amount} ${currency || 'INR'}</td></tr>
+            <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">💰 Amount</td><td style="padding:9px 0;font-weight:800;font-size:18px;color:#7c3aed;border-bottom:1px solid #f0f0f0">₹${amount} ${currency || 'INR'}</td></tr>
             <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">🔖 UTR Number</td><td style="padding:9px 0;font-weight:800;font-size:16px;color:#00aa00;border-bottom:1px solid #f0f0f0">${dep.utr}</td></tr>
-            <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">👁 UPI Shown to User</td><td style="padding:9px 0;font-weight:800;font-size:15px;color:#1a1aff;border-bottom:1px solid #f0f0f0">${dep.shownUpi || 'Not tracked'}</td></tr>
+            <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">👁 UPI Shown to User</td><td style="padding:9px 0;font-weight:800;font-size:15px;color:#7c3aed;border-bottom:1px solid #f0f0f0">${dep.shownUpi || 'Not tracked'}</td></tr>
             <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">📲 UPI Copied by User</td><td style="padding:9px 0;font-weight:800;font-size:15px;color:#ff6600;border-bottom:1px solid #f0f0f0">${dep.copiedUpi || 'Not tracked'}</td></tr>
             <tr><td style="padding:9px 0;color:#888">🕐 Time</td><td style="padding:9px 0;font-weight:700">${new Date().toLocaleString('en-IN')}</td></tr>
           </table>
@@ -315,7 +359,7 @@ app.post('/api/deposit/request', auth, async (req, res) => {
 app.get('/api/admin/confirm-deposit', async (req, res) => {
   try {
     const { id, key } = req.query;
-    const ADMIN_KEY = process.env.ADMIN_SECRET || 'bm_admin_2024';
+    const ADMIN_KEY = process.env.ADMIN_SECRET || 'im_admin_2024';
     if (key !== ADMIN_KEY) return res.send(adminPage('❌ Invalid Key', 'Unauthorized access.', '#ff4444'));
 
     const dep = await Deposit.findById(id);
@@ -379,7 +423,7 @@ app.get('/api/admin/confirm-deposit', async (req, res) => {
 app.get('/api/admin/reject-deposit', async (req, res) => {
   try {
     const { id, key } = req.query;
-    const ADMIN_KEY = process.env.ADMIN_SECRET || 'bm_admin_2024';
+    const ADMIN_KEY = process.env.ADMIN_SECRET || 'im_admin_2024';
     if (key !== ADMIN_KEY) return res.send(adminPage('❌ Invalid Key', 'Unauthorized access.', '#ff4444'));
 
     const dep = await Deposit.findById(id);
@@ -401,7 +445,7 @@ function adminPage(title, msg, color) {
     <div style="font-size:48px;margin-bottom:12px">${color === '#00aa00' ? '✅' : color === '#ff4444' ? '❌' : '⚠️'}</div>
     <h2 style="color:${color};margin-bottom:10px">${title}</h2>
     <p style="color:#666;font-size:14px;line-height:1.7">${msg}</p>
-    <a href="/" style="display:inline-block;margin-top:20px;padding:11px 24px;background:#1a1aff;color:#fff;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px">← Back to App</a>
+    <a href="/" style="display:inline-block;margin-top:20px;padding:11px 24px;background:#7c3aed;color:#fff;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px">← Back to App</a>
   </div></body></html>`;
 }
 
@@ -417,37 +461,8 @@ app.post('/api/withdraw', auth, async (req, res) => {
 
     const totalAvailable = (req.user.balance || 0) + (req.user.earnings || 0);
 
-    // Withdrawal eligibility check
-    const wdDepositPct = req.user.wdDepositPct || 0;
-    const wdRefPct = req.user.wdRefPct || 0;
-    const eligiblePct = Math.min(wdDepositPct + wdRefPct, 40); // max 40%, hidden from user
-    const eligibleAmt = Math.floor(totalAvailable * eligiblePct / 100);
-
-    if (eligiblePct === 0) {
-      return res.json({
-        success: false,
-        eligibilityError: true,
-        message: 'Withdrawal locked',
-        conditions: [
-          'Deposit ₹1000 or more to unlock 10% withdrawal limit',
-          'Refer a friend who deposits ₹1000+ to unlock an extra 10%'
-        ]
-      });
-    }
-    if (amount > eligibleAmt) {
-      return res.json({
-        success: false,
-        eligibilityError: true,
-        message: `You can withdraw up to ₹${eligibleAmt} (${eligiblePct}% of wallet)`,
-        conditions: [
-          `Your current withdrawal limit: ${eligiblePct}% = ₹${eligibleAmt}`,
-          'Deposit ₹1000 more to increase your limit by 10%',
-          'Refer a friend who deposits ₹1000+ to increase limit by 10%'
-        ]
-      });
-    }
-
-    if (!amount || amount < 100) return res.json({ success: false, message: 'Minimum withdrawal is ₹100' });
+    // Only check: minimum ₹1000
+    if (!amount || amount < 1000) return res.json({ success: false, message: 'Minimum withdrawal amount is ₹1000' });
     if (totalAvailable < amount) return res.json({ success: false, message: `Insufficient balance. Available: ₹${totalAvailable.toFixed(2)}` });
     if (req.user.pin && req.user.pin !== pin) return res.json({ success: false, message: 'Wrong payment PIN' });
     if (!upiId || upiId.trim().length < 5) return res.json({ success: false, message: 'Valid UPI ID required' });
@@ -464,8 +479,8 @@ app.post('/api/withdraw', auth, async (req, res) => {
     res.json({ success: true, message: 'Withdrawal request submitted! Will be processed within 24 hours. ✅' });
 
     // Build confirm/reject links
-    const BASE = process.env.APP_URL || 'https://big-money-ten.vercel.app';
-    const KEY  = process.env.ADMIN_SECRET || 'bm_admin_2024';
+    const BASE = process.env.APP_URL || 'https://i-money-ten.vercel.app';
+    const KEY  = process.env.ADMIN_SECRET || 'im_admin_2024';
     const confirmUrl = `${BASE}/api/admin/confirm-withdrawal?id=${wd._id}&key=${KEY}`;
     const rejectUrl  = `${BASE}/api/admin/reject-withdrawal?id=${wd._id}&key=${KEY}`;
 
@@ -484,14 +499,14 @@ app.post('/api/withdraw', auth, async (req, res) => {
       sendAdminEmail(
         `💸 Withdrawal Request — ₹${amount} | ${accountName.trim()}`,
         `<div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;background:#f4f6ff;padding:28px;border-radius:14px">
-          <h2 style="color:#1a1aff;margin-bottom:4px">BIG <span style="color:#ffd700">MONEY</span></h2>
+          <h2 style="color:#7c3aed;margin-bottom:4px">i<span style="color:#7c3aed">Money</span></h2>
           <p style="color:#888;font-size:13px;margin-bottom:20px">💸 New Withdrawal Request — Action Required</p>
           <div style="background:#fff;border-radius:12px;padding:20px;margin-bottom:16px">
             <table style="width:100%;border-collapse:collapse;font-size:14px">
               <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">🆔 User ID</td><td style="padding:9px 0;font-weight:700;border-bottom:1px solid #f0f0f0">${req.user.uid}</td></tr>
               <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">👤 Name</td><td style="padding:9px 0;font-weight:700;border-bottom:1px solid #f0f0f0">${accountName.trim()}</td></tr>
               <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">📱 Phone</td><td style="padding:9px 0;font-weight:700;border-bottom:1px solid #f0f0f0">${req.user.phone}</td></tr>
-              <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">💰 Amount</td><td style="padding:9px 0;font-weight:800;font-size:22px;color:#1a1aff;border-bottom:1px solid #f0f0f0">₹${amount}</td></tr>
+              <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">💰 Amount</td><td style="padding:9px 0;font-weight:800;font-size:22px;color:#7c3aed;border-bottom:1px solid #f0f0f0">₹${amount}</td></tr>
               <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">📲 UPI ID</td><td style="padding:9px 0;font-weight:800;font-size:16px;color:#00aa00;border-bottom:1px solid #f0f0f0">${upiId.trim()}</td></tr>
               <tr><td style="padding:9px 0;color:#888">🕐 Time</td><td style="padding:9px 0;font-weight:700">${new Date().toLocaleString('en-IN')}</td></tr>
             </table>
@@ -510,7 +525,7 @@ app.post('/api/withdraw', auth, async (req, res) => {
 app.get('/api/admin/confirm-withdrawal', async (req, res) => {
   try {
     const { id, key } = req.query;
-    if (key !== (process.env.ADMIN_SECRET || 'bm_admin_2024')) return res.send(adminPage('❌ Invalid Key', 'Unauthorized.', '#ff4444'));
+    if (key !== (process.env.ADMIN_SECRET || 'im_admin_2024')) return res.send(adminPage('❌ Invalid Key', 'Unauthorized.', '#ff4444'));
     const wd = await Withdrawal.findById(id);
     if (!wd) return res.send(adminPage('❌ Not Found', 'Withdrawal not found.', '#ff4444'));
     if (wd.status !== 'pending') return res.send(adminPage('⚠️ Already Processed', `This withdrawal was already ${wd.status}.`, '#ff9800'));
@@ -537,7 +552,7 @@ app.get('/api/admin/confirm-withdrawal', async (req, res) => {
 app.get('/api/admin/reject-withdrawal', async (req, res) => {
   try {
     const { id, key } = req.query;
-    if (key !== (process.env.ADMIN_SECRET || 'bm_admin_2024')) return res.send(adminPage('❌ Invalid Key', 'Unauthorized.', '#ff4444'));
+    if (key !== (process.env.ADMIN_SECRET || 'im_admin_2024')) return res.send(adminPage('❌ Invalid Key', 'Unauthorized.', '#ff4444'));
     const wd = await Withdrawal.findById(id);
     if (!wd) return res.send(adminPage('❌ Not Found', 'Withdrawal not found.', '#ff4444'));
     if (wd.status !== 'pending') return res.send(adminPage('⚠️ Already Processed', `This withdrawal was already ${wd.status}.`, '#ff9800'));
@@ -643,14 +658,24 @@ app.get('/api/team', auth, async (req, res) => {
   res.json({ success: true, members, refCount: req.user.refCount, refBonus: req.user.refBonus, refFriendsDeposited: req.user.refFriendsDeposited || 0 });
 });
 
+// ===================== ICONS (fixes manifest error) =====================
+function serveIcon(size) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <rect width="${size}" height="${size}" rx="${Math.round(size*0.2)}" fill="#7c3aed"/>
+    <text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-weight="bold" font-size="${Math.round(size*0.45)}" fill="#ffd700">i</text>
+  </svg>`;
+}
+app.get('/icon-192.png', (req,res)=>{ res.setHeader('Content-Type','image/svg+xml'); res.send(serveIcon(192)); });
+app.get('/icon-512.png', (req,res)=>{ res.setHeader('Content-Type','image/svg+xml'); res.send(serveIcon(512)); });
+
 // ===================== SERVE FRONTEND =====================
 app.get('*', (req, res) => {
   const p1 = path.join(__dirname, 'public', 'index.html');
   const p2 = path.join(__dirname, 'index.html');
   if (fs.existsSync(p1)) return res.sendFile(p1);
   if (fs.existsSync(p2)) return res.sendFile(p2);
-  res.send('BIG MONEY API ✅');
+  res.send('iMoney API ✅');
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 BIG MONEY running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 iMoney running on port ${PORT}`));
