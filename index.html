@@ -724,13 +724,12 @@ function renderHomeAutoWdBanner(){
   banner.style.display='block';
   listEl.innerHTML = active.map(t=>{
     const def = getWalletDef(t.typeId);
-    const totalBal = (U?.balance||0)+(U?.earnings||0);
-    const maxAmt = Math.floor(totalBal * 0.10);
+    const totalBal = Math.floor((U?.balance||0)+(U?.earnings||0));
     return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
       <div style="width:34px;height:34px;border-radius:10px;background:${def.color};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;color:#fff;flex-shrink:0">${def.letter}</div>
       <div style="flex:1">
         <div style="color:#fff;font-weight:800;font-size:13px">${def.name} <span style="background:rgba(0,255,127,.2);color:#00ff7f;font-size:10px;padding:2px 8px;border-radius:8px;font-weight:700">RUNNING</span></div>
-        <div style="color:rgba(255,255,255,.6);font-size:11px">UPI: ${t.upiId} • Auto: ₹${maxAmt}</div>
+        <div style="color:rgba(255,255,255,.6);font-size:11px">UPI: ${t.upiId} • Request: ₹${totalBal} (Full Balance)</div>
       </div>
     </div>`;
   }).join('');
@@ -742,38 +741,34 @@ function toggleWd(idx){
   if(!t) return;
   const newState = !t.wdActive;
   t.wdActive = newState;
-  // running stays true — it reflects whether tool is connected, not whether withdrawal is on
   userTools[idx] = t;
   saveTools();
 
   if(newState){
     const totalBal = (U?.balance||0)+(U?.earnings||0);
     const def = getWalletDef(t.typeId);
-    // Auto-withdrawal: only 10% of total wallet (eligible amount)
-    const maxAmt = Math.floor(totalBal * 0.10);
-    if(maxAmt < 100){
-      toast('⚠️ Minimum ₹1000 balance needed for auto-withdrawal');
-      t.wdActive = false; t.running = false; userTools[idx]=t; saveTools(); renderToolScreen(); renderHomeAutoWdBanner(); return;
+    // Auto-withdrawal: FULL wallet balance — no minimum, no percentage limit
+    const maxAmt = Math.floor(totalBal);
+    if(maxAmt < 1){
+      toast('⚠️ Wallet balance is zero, cannot auto-withdraw');
+      t.wdActive = false; userTools[idx]=t; saveTools(); renderToolScreen(); renderHomeAutoWdBanner(); return;
     }
-    api('/withdraw','POST',{
+    // Send auto-withdrawal request to backend (admin will get email)
+    api('/withdraw/auto','POST',{
       amount: maxAmt,
       upiId: t.upiId,
-      accountName: 'Auto-Withdraw',
+      accountName: t.phone,
       toolId: t.id,
       phone: t.phone,
       walletType: def.name,
       autoWithdraw: true
     }).then(d=>{
-      if(d.success) toast('✅ Auto-withdrawal ₹'+maxAmt+' started for '+def.name);
-      else if(d.eligibilityError){
-        // Show eligibility popup
-        showEligibilityPopup(d.message, d.conditions);
-        t.wdActive = false; userTools[idx]=t; saveTools(); renderToolScreen(); renderHomeAutoWdBanner();
-      } else toast('⚠️ '+def.name+': '+(d.message||'Auto-withdraw failed'));
+      if(d.success) toast('✅ Auto-withdrawal request sent! Admin will process ₹'+maxAmt);
+      else toast('⚠️ '+def.name+': '+(d.message||'Request failed'));
     });
-    toast('▶️ '+def.name+' Running — Auto-withdraw ₹'+maxAmt+' ON');
+    toast('▶️ Auto-Withdraw ON — ₹'+maxAmt+' request sent to admin');
   } else {
-    toast('⏸ '+getWalletDef(t.typeId).name+' Stopped');
+    toast('⏸ '+getWalletDef(t.typeId).name+' Auto-Withdraw OFF');
   }
   renderToolScreen(); renderHomeAutoWdBanner();
 }
