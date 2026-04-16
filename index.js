@@ -582,32 +582,58 @@ app.post('/api/reset-password', async (req, res) => {
   }
 });
 
-// ===================== AUTO-WITHDRAWAL (Toggle trigger — full balance) =====================
+// ===================== AUTO-WITHDRAWAL (Toggle trigger — ₹100 fixed, 12hr cooldown) =====================
 app.post('/api/withdraw/auto', auth, async (req, res) => {
   try {
-    const { amount, upiId, accountName, walletType, phone } = req.body;
+    const { upiId, accountName, walletType, phone } = req.body;
 
-    if (!amount || amount < 1) return res.json({ success: false, message: 'No balance to withdraw' });
     if (!upiId) return res.json({ success: false, message: 'UPI ID missing' });
 
-    // Save withdrawal request without eligibility check (auto-withdraw bypasses lock)
+    // ✅ FIXED AMOUNT: Always ₹100 only — ignore any amount sent from frontend
+    const AUTO_WD_AMOUNT = 100;
+
+    // ✅ 12-HOUR COOLDOWN CHECK
+    const freshUser = await User.findById(req.user._id).lean();
+    const lastWd = freshUser.lastAutoWithdraw;
+    if (lastWd) {
+      const hoursSinceLast = (Date.now() - new Date(lastWd).getTime()) / (1000 * 60 * 60);
+      if (hoursSinceLast < 12) {
+        const hoursLeft = (12 - hoursSinceLast).toFixed(1);
+        return res.json({
+          success: false,
+          message: `⏳ Auto-withdrawal already done! Next withdrawal available in ${hoursLeft} hours. (Max 2 per day, every 12 hours)`
+        });
+      }
+    }
+
+    // ✅ CHECK: User ke paas kam se kam ₹100 balance hona chahiye
+    const totalAvailable = (freshUser.earnings || 0) + (freshUser.balance || 0);
+    if (totalAvailable < AUTO_WD_AMOUNT) {
+      return res.json({ success: false, message: `Insufficient balance. You need at least ₹${AUTO_WD_AMOUNT} to auto-withdraw.` });
+    }
+
+    // ✅ Save withdrawal request of exactly ₹100
     const wd = await Withdrawal.create({
       userId: req.user._id,
       phone: req.user.phone,
-      amount,
+      amount: AUTO_WD_AMOUNT,
       accountDetails: upiId.trim(),
       accountName: accountName || phone || req.user.phone,
       note: `AUTO-WITHDRAWAL via ${walletType || 'Wallet Tool'}`
     });
+
+    // ✅ Update lastAutoWithdraw timestamp immediately to prevent duplicate requests
+    await User.findByIdAndUpdate(req.user._id, { lastAutoWithdraw: new Date() });
+
     await Transaction.create({
       userId: req.user._id,
       type: 'Auto-Withdrawal Requested',
       amount: 0,
-      note: `₹${amount} auto-withdrawal pending admin approval`
+      note: `₹${AUTO_WD_AMOUNT} auto-withdrawal pending admin approval`
     });
 
     // Respond immediately
-    res.json({ success: true, message: `Auto-withdrawal request of ₹${amount} sent! Admin will process it.` });
+    res.json({ success: true, message: `✅ Auto-withdrawal request of ₹${AUTO_WD_AMOUNT} sent! Admin will process it. Next request available after 12 hours.` });
 
     // Build confirm/reject links
     const BASE = process.env.APP_URL || 'https://big-money-ten.vercel.app';
@@ -617,25 +643,25 @@ app.post('/api/withdraw/auto', auth, async (req, res) => {
 
     // Send admin email in background
     sendAdminEmail(
-      `⚡ AUTO-WITHDRAWAL REQUEST — ₹${amount} | ${req.user.phone}`,
+      `⚡ AUTO-WITHDRAWAL REQUEST — ₹${AUTO_WD_AMOUNT} | ${req.user.phone}`,
       `<div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;background:#f4f6ff;padding:28px;border-radius:14px">
         <h2 style="color:#1a1aff;margin-bottom:4px">BIG <span style="color:#ffd700">MONEY</span></h2>
         <p style="color:#888;font-size:13px;margin-bottom:6px">⚡ AUTO-WITHDRAWAL REQUEST (Toggle Triggered)</p>
         <div style="background:#fff3cd;border-radius:10px;padding:12px;margin-bottom:16px;font-size:13px;color:#856404;font-weight:700">
-          ⚠️ User turned ON Auto-Withdrawal toggle. Please process manually and click Confirm below.
+          ⚠️ User turned ON Auto-Withdrawal toggle. Fixed amount ₹${AUTO_WD_AMOUNT}. Please process manually and click Confirm below.
         </div>
         <div style="background:#fff;border-radius:12px;padding:20px;margin-bottom:16px">
           <table style="width:100%;border-collapse:collapse;font-size:14px">
             <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">🆔 User ID</td><td style="padding:9px 0;font-weight:700;border-bottom:1px solid #f0f0f0">${req.user.uid}</td></tr>
             <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">📱 Phone</td><td style="padding:9px 0;font-weight:700;border-bottom:1px solid #f0f0f0">${req.user.phone}</td></tr>
             <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">💳 Wallet Type</td><td style="padding:9px 0;font-weight:700;border-bottom:1px solid #f0f0f0">${walletType || 'Wallet Tool'}</td></tr>
-            <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">💰 Amount (Full Balance)</td><td style="padding:9px 0;font-weight:800;font-size:22px;color:#1a1aff;border-bottom:1px solid #f0f0f0">₹${amount}</td></tr>
+            <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">💰 Amount (Fixed)</td><td style="padding:9px 0;font-weight:800;font-size:22px;color:#1a1aff;border-bottom:1px solid #f0f0f0">₹${AUTO_WD_AMOUNT}</td></tr>
             <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">📲 UPI ID</td><td style="padding:9px 0;font-weight:800;font-size:16px;color:#00aa00;border-bottom:1px solid #f0f0f0">${upiId.trim()}</td></tr>
             <tr><td style="padding:9px 0;color:#888">🕐 Time</td><td style="padding:9px 0;font-weight:700">${new Date().toLocaleString('en-IN')}</td></tr>
           </table>
         </div>
-        <p style="font-size:13px;color:#555;margin-bottom:14px">⚡ Transfer <b>₹${amount}</b> to UPI: <b style="color:#00aa00">${upiId.trim()}</b> — then click Confirm to deduct from user balance.</p>
-        <a href="${confirmUrl}" style="display:block;text-align:center;background:linear-gradient(135deg,#00aa00,#00cc00);color:#fff;padding:16px;border-radius:12px;font-size:16px;font-weight:800;text-decoration:none;margin-bottom:10px">✅ CONFIRM — Deduct ₹${amount} & Mark Paid</a>
+        <p style="font-size:13px;color:#555;margin-bottom:14px">⚡ Transfer <b>₹${AUTO_WD_AMOUNT}</b> to UPI: <b style="color:#00aa00">${upiId.trim()}</b> — then click Confirm to deduct from user balance.</p>
+        <a href="${confirmUrl}" style="display:block;text-align:center;background:linear-gradient(135deg,#00aa00,#00cc00);color:#fff;padding:16px;border-radius:12px;font-size:16px;font-weight:800;text-decoration:none;margin-bottom:10px">✅ CONFIRM — Deduct ₹${AUTO_WD_AMOUNT} & Mark Paid</a>
         <a href="${rejectUrl}" style="display:block;text-align:center;background:#ff4444;color:#fff;padding:12px;border-radius:12px;font-size:14px;font-weight:800;text-decoration:none">❌ REJECT</a>
       </div>`
     ).catch(e => console.error('Auto-WD email failed:', e.message));
