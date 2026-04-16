@@ -18,6 +18,7 @@ const userSchema = new mongoose.Schema({
   refFriendsDeposited: { type: Number, default: 0 }, // how many referred friends deposited 500+
   activeTool: { type: Object, default: null },
   tasksClaimed: { type: Object, default: {} },
+  lastAutoWithdraw: { type: Date, default: null }, // 12-hour cooldown tracking
   createdAt: { type: Date, default: Date.now }
 });
 
