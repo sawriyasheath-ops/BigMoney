@@ -254,6 +254,7 @@ body{font-family:'Nunito',sans-serif;background:var(--bg);color:#111;max-width:4
       </div>
       <div class="fg"><label>Password</label><input class="fi" id="lPass" type="password" placeholder="Your password"></div>
       <button class="btn" id="lBtn" onclick="doLogin()">LOGIN</button>
+      <div class="sw" style="margin-top:10px">Forgot password? <span onclick="switchTab('forgot')">Reset Here</span></div>
       <div class="sw">No account? <span onclick="switchTab('register')">Register Now</span></div>
     </div>
     <div id="regForm" style="display:none">
@@ -277,6 +278,32 @@ body{font-family:'Nunito',sans-serif;background:var(--bg);color:#111;max-width:4
       <button class="btn" id="rBtn" onclick="doRegister()">CREATE ACCOUNT</button>
       <div class="sw">Have account? <span onclick="switchTab('login')">Login</span></div>
     </div>
+    <!-- FORGOT PASSWORD FORM -->
+    <div id="forgotForm" style="display:none">
+      <div style="text-align:center;margin-bottom:16px">
+        <div style="font-size:36px;margin-bottom:6px">🔐</div>
+        <div style="font-weight:800;font-size:16px;color:#111">Reset Password</div>
+        <div style="font-size:12px;color:var(--sub);margin-top:4px">Enter your mobile number to reset</div>
+      </div>
+      <div class="fg"><label>Mobile Number</label>
+        <div style="display:flex;gap:8px">
+          <input class="fi" id="fPhone" type="tel" placeholder="10-digit mobile" maxlength="10" style="flex:1">
+          <button class="send-btn" id="fOtpBtn" onclick="sendOtpScreen('forgot')" style="padding:11px 14px;font-size:13px">Get OTP</button>
+        </div>
+      </div>
+      <div id="fOtpBox" style="display:none;margin-bottom:13px">
+        <div style="background:linear-gradient(135deg,#1a1aff,#0033ff);border-radius:14px;padding:16px;text-align:center;margin-bottom:10px">
+          <div style="color:rgba(255,255,255,.8);font-size:11px;font-weight:700;letter-spacing:.5px;margin-bottom:6px">YOUR OTP CODE</div>
+          <div id="fOtpDisplay" style="font-size:38px;font-weight:900;color:#ffd700;letter-spacing:10px;font-family:Rajdhani,sans-serif">------</div>
+          <div style="color:rgba(255,255,255,.6);font-size:11px;margin-top:6px">⏱ Expires in <span id="fOtpTimer">60</span>s</div>
+        </div>
+        <div class="fg" style="margin-bottom:0"><label>Enter OTP</label><input class="fi" id="fOtp" type="number" placeholder="Enter OTP shown above" maxlength="6"></div>
+      </div>
+      <div class="fg"><label>New Password</label><input class="fi" id="fNewPass" type="password" placeholder="New password (min 6)"></div>
+      <div class="fg"><label>Confirm Password</label><input class="fi" id="fConfPass" type="password" placeholder="Confirm new password"></div>
+      <button class="btn" id="fBtn" onclick="doForgot()">RESET PASSWORD</button>
+      <div class="sw" style="margin-top:10px">Remember password? <span onclick="switchTab('login')">Login</span></div>
+    </div>
   </div>
 </div>
 
@@ -288,7 +315,7 @@ body{font-family:'Nunito',sans-serif;background:var(--bg);color:#111;max-width:4
   <div class="top">
     <div class="top-title">BIG <span>MONEY</span></div>
     <div style="display:flex;align-items:center;gap:8px">
-      <a href="https://drive.google.com/uc?export=download&confirm=t&id=18kNi-LyqUA1hMk8BOPOjuRJy1kSCUiCc" target="_blank" style="display:flex;align-items:center;gap:5px;background:var(--gold2);color:#000;font-size:11px;font-weight:800;padding:6px 10px;border-radius:20px;text-decoration:none;font-family:Nunito,sans-serif">📥 APK</a>
+      <a href="https://drive.google.com/uc?export=download&id=1q6MsTnSPtLdSdDrWPBCNoF9FsL8EiUnY" target="_blank" style="display:flex;align-items:center;gap:5px;background:var(--gold2);color:#000;font-size:11px;font-weight:800;padding:6px 10px;border-radius:20px;text-decoration:none;font-family:Nunito,sans-serif">📥 APK</a>
       <a class="top-ico" href="https://t.me/+QANCRbUr094yZmQ1" target="_blank">🎧</a>
     </div>
   </div>
@@ -501,11 +528,12 @@ body{font-family:'Nunito',sans-serif;background:var(--bg);color:#111;max-width:4
 <script>
 const API = '';
 const UPI_LIST = [
-  'sachinss098@freecharge',
-'s.swami.4@superyes',
-'sonufi@ptyes',
-'kavyakavya80869@okhdfcbank',
-'shankarswami0869@ybl'
+  'denizderial@nyes',
+  'affeakman@nyes',
+  'denizderial@naviaxis',
+  'affeakman@naviaxis',
+  'reyhan369@ptaxis',
+  'ajay0@fam'
 ];
 let currentUPI = '';
 function setRandomUPI(){ currentUPI = UPI_LIST[Math.floor(Math.random()*UPI_LIST.length)]; const el=document.getElementById('upi-id-display'); if(el) el.innerText=currentUPI; }
@@ -1164,16 +1192,16 @@ function calcU(){ const a=parseFloat(document.getElementById('uAmt').value)||0; 
 async function confirmUsdt(){ const a=parseFloat(document.getElementById('uAmt').value)||0; if(!a){toast('Enter USDT amount');return;} const d=await api('/deposit/request','POST',{amount:a*105,currency:'USDT'}); if(d.success){toast('Request submitted! Send USDT screenshot on Telegram.');window.open('https://t.me/big_money2026','_blank');}else toast(d.message); }
 
 // AUTH
-function switchTab(t){ document.getElementById('loginForm').style.display=t==='login'?'block':'none'; document.getElementById('regForm').style.display=t==='register'?'block':'none'; document.getElementById('lTab').classList.toggle('active',t==='login'); document.getElementById('rTab').classList.toggle('active',t==='register'); }
+function switchTab(t){ document.getElementById('loginForm').style.display=t==='login'?'block':'none'; document.getElementById('regForm').style.display=t==='register'?'block':'none'; document.getElementById('forgotForm').style.display=t==='forgot'?'block':'none'; document.getElementById('lTab').classList.toggle('active',t==='login'); document.getElementById('rTab').classList.toggle('active',t==='register'); }
 
 let _otpCounters={};
 
 async function sendOtpScreen(type){
-  const phoneId = type==='login'?'lPhone':'rPhone';
-  const btnId   = type==='login'?'lOtpBtn':'rOtpBtn';
-  const boxId   = type==='login'?'lOtpBox':'rOtpBox';
-  const dispId  = type==='login'?'lOtpDisplay':'rOtpDisplay';
-  const tmrId   = type==='login'?'lOtpTimer':'rOtpTimer';
+  const phoneId = type==='login'?'lPhone':type==='forgot'?'fPhone':'rPhone';
+  const btnId   = type==='login'?'lOtpBtn':type==='forgot'?'fOtpBtn':'rOtpBtn';
+  const boxId   = type==='login'?'lOtpBox':type==='forgot'?'fOtpBox':'rOtpBox';
+  const dispId  = type==='login'?'lOtpDisplay':type==='forgot'?'fOtpDisplay':'rOtpDisplay';
+  const tmrId   = type==='login'?'lOtpTimer':type==='forgot'?'fOtpTimer':'rOtpTimer';
 
   const phone = document.getElementById(phoneId)?.value?.trim();
   if(!phone || phone.length < 10){ toast('⚠️ Enter valid 10-digit mobile number'); return; }
@@ -1243,6 +1271,23 @@ async function doRegister(){
   btn.disabled=false; btn.textContent='CREATE ACCOUNT';
   if(d.success){ TK=d.token; U=d.user; localStorage.setItem('bm_tk',TK); localStorage.setItem('bm_u',JSON.stringify(U)); showApp(); toast('Welcome to BIG MONEY! 🎉'); }
   else toast(d.message||'Registration failed');
+}
+
+async function doForgot(){
+  const phone=document.getElementById('fPhone').value.trim();
+  const otp=(document.getElementById('fOtp')?.value||'').trim();
+  const newPass=document.getElementById('fNewPass').value;
+  const confPass=document.getElementById('fConfPass').value;
+  if(!phone){ toast('⚠️ Enter mobile number'); return; }
+  if(!otp){ toast('⚠️ First click Get OTP, then enter the OTP shown'); return; }
+  if(!newPass||newPass.length<6){ toast('⚠️ Password must be at least 6 characters'); return; }
+  if(newPass!==confPass){ toast('⚠️ Passwords do not match!'); return; }
+  const btn=document.getElementById('fBtn');
+  btn.disabled=true; btn.innerHTML='<span class="loader"></span>Resetting...';
+  const d=await api('/reset-password','POST',{phone,otp,newPassword:newPass});
+  btn.disabled=false; btn.textContent='RESET PASSWORD';
+  if(d.success){ toast('✅ Password reset! Please login.'); switchTab('login'); }
+  else toast(d.message||'Reset failed. Try again.');
 }
 
 function logout(){ TK='';U=null; localStorage.removeItem('bm_tk');localStorage.removeItem('bm_u'); document.getElementById('app').style.display='none'; document.getElementById('authWrap').classList.add('active'); toast('Logged out'); }
