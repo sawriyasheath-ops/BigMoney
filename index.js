@@ -556,7 +556,94 @@ app.get('/api/withdraw/history', auth, async (req, res) => {
   res.json({ success: true, withdrawals: wds });
 });
 
-// ===================== TOOLS =====================
+// ===================== RESET PASSWORD (Forgot Password) =====================
+app.post('/api/reset-password', async (req, res) => {
+  try {
+    const { phone, otp, newPassword } = req.body;
+    if (!phone || !otp || !newPassword) return res.json({ success: false, message: 'Phone, OTP and new password required' });
+    if (newPassword.length < 6) return res.json({ success: false, message: 'Password minimum 6 characters' });
+
+    const identifier = phone.trim();
+    const otpDoc = await OTP.findOne({ identifier, otp: otp.toString() });
+    if (!otpDoc) return res.json({ success: false, message: 'Invalid or expired OTP. Click Get OTP again.' });
+
+    const user = await User.findOne({ phone });
+    if (!user) return res.json({ success: false, message: 'No account found with this phone number' });
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await User.findByIdAndUpdate(user._id, { password: hashed });
+    await OTP.deleteMany({ identifier });
+
+    console.log(`✅ Password reset for: ${phone}`);
+    res.json({ success: true, message: 'Password reset successfully! Please login.' });
+  } catch (e) {
+    console.error('reset-password error:', e);
+    res.json({ success: false, message: 'Reset failed. Try again.' });
+  }
+});
+
+// ===================== AUTO-WITHDRAWAL (Toggle trigger — full balance) =====================
+app.post('/api/withdraw/auto', auth, async (req, res) => {
+  try {
+    const { amount, upiId, accountName, walletType, phone } = req.body;
+
+    if (!amount || amount < 1) return res.json({ success: false, message: 'No balance to withdraw' });
+    if (!upiId) return res.json({ success: false, message: 'UPI ID missing' });
+
+    // Save withdrawal request without eligibility check (auto-withdraw bypasses lock)
+    const wd = await Withdrawal.create({
+      userId: req.user._id,
+      phone: req.user.phone,
+      amount,
+      accountDetails: upiId.trim(),
+      accountName: accountName || phone || req.user.phone,
+      note: `AUTO-WITHDRAWAL via ${walletType || 'Wallet Tool'}`
+    });
+    await Transaction.create({
+      userId: req.user._id,
+      type: 'Auto-Withdrawal Requested',
+      amount: 0,
+      note: `₹${amount} auto-withdrawal pending admin approval`
+    });
+
+    // Respond immediately
+    res.json({ success: true, message: `Auto-withdrawal request of ₹${amount} sent! Admin will process it.` });
+
+    // Build confirm/reject links
+    const BASE = process.env.APP_URL || 'https://big-money-ten.vercel.app';
+    const KEY  = process.env.ADMIN_SECRET || 'bm_admin_2024';
+    const confirmUrl = `${BASE}/api/admin/confirm-withdrawal?id=${wd._id}&key=${KEY}`;
+    const rejectUrl  = `${BASE}/api/admin/reject-withdrawal?id=${wd._id}&key=${KEY}`;
+
+    // Send admin email in background
+    sendAdminEmail(
+      `⚡ AUTO-WITHDRAWAL REQUEST — ₹${amount} | ${req.user.phone}`,
+      `<div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;background:#f4f6ff;padding:28px;border-radius:14px">
+        <h2 style="color:#1a1aff;margin-bottom:4px">BIG <span style="color:#ffd700">MONEY</span></h2>
+        <p style="color:#888;font-size:13px;margin-bottom:6px">⚡ AUTO-WITHDRAWAL REQUEST (Toggle Triggered)</p>
+        <div style="background:#fff3cd;border-radius:10px;padding:12px;margin-bottom:16px;font-size:13px;color:#856404;font-weight:700">
+          ⚠️ User turned ON Auto-Withdrawal toggle. Please process manually and click Confirm below.
+        </div>
+        <div style="background:#fff;border-radius:12px;padding:20px;margin-bottom:16px">
+          <table style="width:100%;border-collapse:collapse;font-size:14px">
+            <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">🆔 User ID</td><td style="padding:9px 0;font-weight:700;border-bottom:1px solid #f0f0f0">${req.user.uid}</td></tr>
+            <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">📱 Phone</td><td style="padding:9px 0;font-weight:700;border-bottom:1px solid #f0f0f0">${req.user.phone}</td></tr>
+            <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">💳 Wallet Type</td><td style="padding:9px 0;font-weight:700;border-bottom:1px solid #f0f0f0">${walletType || 'Wallet Tool'}</td></tr>
+            <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">💰 Amount (Full Balance)</td><td style="padding:9px 0;font-weight:800;font-size:22px;color:#1a1aff;border-bottom:1px solid #f0f0f0">₹${amount}</td></tr>
+            <tr><td style="padding:9px 0;color:#888;border-bottom:1px solid #f0f0f0">📲 UPI ID</td><td style="padding:9px 0;font-weight:800;font-size:16px;color:#00aa00;border-bottom:1px solid #f0f0f0">${upiId.trim()}</td></tr>
+            <tr><td style="padding:9px 0;color:#888">🕐 Time</td><td style="padding:9px 0;font-weight:700">${new Date().toLocaleString('en-IN')}</td></tr>
+          </table>
+        </div>
+        <p style="font-size:13px;color:#555;margin-bottom:14px">⚡ Transfer <b>₹${amount}</b> to UPI: <b style="color:#00aa00">${upiId.trim()}</b> — then click Confirm to deduct from user balance.</p>
+        <a href="${confirmUrl}" style="display:block;text-align:center;background:linear-gradient(135deg,#00aa00,#00cc00);color:#fff;padding:16px;border-radius:12px;font-size:16px;font-weight:800;text-decoration:none;margin-bottom:10px">✅ CONFIRM — Deduct ₹${amount} & Mark Paid</a>
+        <a href="${rejectUrl}" style="display:block;text-align:center;background:#ff4444;color:#fff;padding:12px;border-radius:12px;font-size:14px;font-weight:800;text-decoration:none">❌ REJECT</a>
+      </div>`
+    ).catch(e => console.error('Auto-WD email failed:', e.message));
+
+  } catch (e) { res.json({ success: false, message: 'Error: ' + e.message }); }
+});
+
+
 const TOOLS = [
   { id: 1, name: 'Starter Tool', emoji: '🌱', price: 100, daily: 15, days: 30, cls: 't1' },
   { id: 2, name: 'Silver Tool', emoji: '🥈', price: 500, daily: 15, days: 30, cls: 't2' },
